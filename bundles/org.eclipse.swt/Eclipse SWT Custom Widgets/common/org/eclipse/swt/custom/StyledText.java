@@ -3451,6 +3451,10 @@ public Color getBackground() {
 	}
 	return background;
 }
+@Override
+protected boolean isOpaque() {
+	return background == null || background.getAlpha() == 255;
+}
 /**
  * Returns the baseline, in pixels.
  *  
