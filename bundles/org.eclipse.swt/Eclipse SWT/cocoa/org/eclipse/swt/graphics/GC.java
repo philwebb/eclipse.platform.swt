@@ -55,6 +55,7 @@ import org.eclipse.swt.internal.cocoa.*;
  * @see <a href="http://www.eclipse.org/swt/">Sample code and further information</a>
  */
 public final class GC extends Resource {
+
 	/**
 	 * the handle to the OS device context
 	 * (Warning: This field is platform dependent)
@@ -71,6 +72,7 @@ public final class GC extends Resource {
 
 	Drawable drawable;
 	GCData data;
+	GCTextDataCache textData = new GCTextDataCache(20);
 
 	CGPathElement element;
 	int count, typeCount;
@@ -906,7 +908,7 @@ void destroy() {
 	data.path = data.clipPath = data.visiblePath = null;
 	data.transform = data.inverseTransform = null;
 	data.fg = data.bg = null;
-
+	textData.release();
 	/* Dispose the GC */
 	if (drawable != null) drawable.internal_dispose_GC(handle.id, data);
 	handle.restoreGraphicsState();
@@ -1671,39 +1673,63 @@ public void drawText (String string, int x, int y, int flags) {
 		}
 		handle.saveGraphicsState();
 		handle.setShouldAntialias(mode);
-		if (data.textStorage == null) createLayout();
-		NSAttributedString attribStr = createString(string, flags, true);
-		data.textStorage.setAttributedString(attribStr);
-		attribStr.release();
-		NSPoint pt = new NSPoint();
-		pt.x = x;
-		pt.y = y;
-		NSRange range = data.layoutManager.glyphRangeForTextContainer(data.textContainer);
-		if ((flags & SWT.DRAW_TRANSPARENT) == 0) {
-			NSRect rect = data.layoutManager.usedRectForTextContainer(data.textContainer);
-			rect.x = x;
-			rect.y = y;
-			Pattern pattern = data.backgroundPattern;
-			if (pattern != null) setPatternPhase(pattern);
-			if (pattern != null && pattern.gradient != null) {
-				NSBezierPath path = NSBezierPath.bezierPathWithRect(rect);
-				fillPattern(path, pattern);
-			} else {
-				NSColor bg = data.bg;
-				if (bg == null) {
-					double /*float*/ [] color = data.background;
-					bg = data.bg = NSColor.colorWithDeviceRed(color[0], color[1], color[2], data.alpha / 255f);
-					bg.retain();
-				}
-				bg.setFill();
-				NSBezierPath.fillRect(rect);
-			}
+		if (length == 1 && flags == SWT.DRAW_TRANSPARENT) {
+			doFastDrawText(string, x, y);
+		} else {
+			doDrawText(string, x, y, flags);
 		}
-		data.layoutManager.drawGlyphsForGlyphRange(range, pt);
 		handle.restoreGraphicsState();
 	} finally {
 		uncheckGC(pool);
 	}
+}
+
+private void doFastDrawText(String string, int x, int y) {
+	GCTextData data = getTextData(string);
+	data.draw(x, y);
+}
+
+private GCTextData getTextData(String string) {
+	GCTextData data = (GCTextData) textData.get(string);
+	if (data == null) {
+		NSAttributedString attribStr = createString(string, 0, true);
+		data = new GCTextData(attribStr);
+		attribStr.release();
+		textData.put(string, data);
+	}
+	return data;
+}
+
+private void doDrawText(String string, int x, int y, int flags) {
+	if (data.textStorage == null) createLayout();
+	NSAttributedString attribStr = createString(string, flags, true);
+	data.textStorage.setAttributedString(attribStr);
+	attribStr.release();
+	NSPoint pt = new NSPoint();
+	pt.x = x;
+	pt.y = y;
+	NSRange range = data.layoutManager.glyphRangeForTextContainer(data.textContainer);
+	if ((flags & SWT.DRAW_TRANSPARENT) == 0) {
+		NSRect rect = data.layoutManager.usedRectForTextContainer(data.textContainer);
+		rect.x = x;
+		rect.y = y;
+		Pattern pattern = data.backgroundPattern;
+		if (pattern != null) setPatternPhase(pattern);
+		if (pattern != null && pattern.gradient != null) {
+			NSBezierPath path = NSBezierPath.bezierPathWithRect(rect);
+			fillPattern(path, pattern);
+		} else {
+			NSColor bg = data.bg;
+			if (bg == null) {
+				double /*float*/ [] color = data.background;
+				bg = data.bg = NSColor.colorWithDeviceRed(color[0], color[1], color[2], data.alpha / 255f);
+				bg.retain();
+			}
+			bg.setFill();
+			NSBezierPath.fillRect(rect);
+		}
+	}
+	data.layoutManager.drawGlyphsForGlyphRange(range, pt);
 }
 
 /**
